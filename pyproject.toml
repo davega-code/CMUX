@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cmux"
+version = "0.1.0"
+description = "tmux-like monitor for Claude Code sessions"
+requires-python = ">=3.11"
+dependencies = [
+    "textual>=3.0.0",
+    "click>=8.0",
+    "watchfiles>=1.0.0",
+]
+
+[project.scripts]
+cmux = "cmux.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cmux"]

@@ -1,0 +1,40 @@
+Screen {
+    layout: vertical;
+}
+
+#session-header {
+    height: 1;
+    background: $primary-background;
+    color: $text;
+    padding: 0 1;
+}
+
+#waiting-message {
+    height: 1fr;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+#task-list {
+    height: 1fr;
+    padding: 0 1;
+    overflow-y: auto;
+}
+
+.task-row {
+    height: 1;
+    padding: 0 1;
+}
+
+.task-done {
+    color: $success;
+}
+
+.task-in-progress {
+    color: $warning;
+    text-style: bold;
+}
+
+.task-pending {
+    color: $text-muted;
+}
