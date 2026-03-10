@@ -100,27 +100,11 @@ cmux agents --cwd /path/to/project --session-id <uuid>
 ## How it works
 
 1. **`cmux`** generates a session UUID and launches `wt.exe` with three split panes
-2. **Left pane** runs `claude --session-id <uuid> --append-system-prompt "..."` — the system prompt instructs Claude to maintain a `<uuid>-todo.json` task list file
-3. **Top-right pane** watches `<uuid>-todo.json` for changes and renders the task list with status icons (pending, in progress, done)
-4. **Bottom-right pane** tails Claude's JSONL session log at `~/.claude/projects/<slug>/<uuid>.jsonl` and extracts subagent lifecycle events (start, progress, complete)
+2. **Left pane** runs `claude --session-id <uuid>` — a standard Claude Code session
+3. **Top-right pane** tails the JSONL session log and extracts `TaskCreate`/`TaskUpdate` tool calls to render the task list with status icons (pending, in progress, done)
+4. **Bottom-right pane** tails the same JSONL session log at `~/.claude/projects/<slug>/<uuid>.jsonl` and extracts subagent lifecycle events (start, progress, complete)
 
-No IPC or background daemons — each pane independently reads its data source.
-
-## TODO file format
-
-Claude maintains a JSON file in the project directory:
-
-```json
-{
-  "tasks": [
-    {"id": 1, "title": "Explore existing codebase", "status": "done"},
-    {"id": 2, "title": "Implement parser module", "status": "in_progress"},
-    {"id": 3, "title": "Write tests", "status": "pending"}
-  ]
-}
-```
-
-Status values: `pending`, `in_progress`, `done`.
+No IPC, background daemons, or custom JSON files — both TUI panes read from the same JSONL session log that Claude Code writes natively. The TODO tracker uses Claude Code's built-in task system (`TaskCreate`/`TaskUpdate` tools) instead of a custom tracking mechanism.
 
 ## License
 

@@ -9,6 +9,8 @@ from .events import (
     AgentProgressEvent,
     AgentStartEvent,
     SessionInfo,
+    TodoItem,
+    TodoUpdateEvent,
 )
 
 
@@ -37,13 +39,16 @@ def _summarize_tool_input(tool_name: str, inp: dict) -> str:
 
 
 class JsonlParser:
-    """Tails a JSONL session log file and yields parsed agent-related events."""
+    """Tails a JSONL session log file and yields parsed events (tasks, agents)."""
 
     def __init__(self, jsonl_path: Path):
         self.jsonl_path = jsonl_path
         self._file_pos: int = 0
         self._session_info: SessionInfo | None = None
         self._known_agents: set[str] = set()
+        # Task tracking state
+        self._tasks: dict[str, TodoItem] = {}
+        self._pending_creates: list[dict] = []
 
     async def tail_events(self) -> AsyncIterator:
         """Async generator that waits for the file, then yields events as new lines appear."""
@@ -97,8 +102,31 @@ class JsonlParser:
                 )
                 events.append(self._session_info)
 
-            # Check for agent completion
+            # Check for task creation results
             tool_result = data.get("toolUseResult", {})
+            if isinstance(tool_result, dict) and isinstance(tool_result.get("task"), dict):
+                task_info = tool_result["task"]
+                task_id = task_info.get("id")
+                subject = task_info.get("subject", "")
+                if task_id and self._pending_creates:
+                    # Match by subject, fall back to FIFO order
+                    matched = None
+                    for i, pending in enumerate(self._pending_creates):
+                        if pending["subject"] == subject:
+                            matched = self._pending_creates.pop(i)
+                            break
+                    if matched is None:
+                        matched = self._pending_creates.pop(0)
+                    self._tasks[task_id] = TodoItem(
+                        id=task_id,
+                        subject=matched["subject"],
+                        status="pending",
+                        description=matched.get("description", ""),
+                        active_form=matched.get("active_form", ""),
+                    )
+                    events.append(self._build_todo_update(timestamp))
+
+            # Check for agent completion
             if isinstance(tool_result, dict) and tool_result.get("agentId"):
                 agent_id = tool_result["agentId"]
                 events.append(AgentCompleteEvent(
@@ -110,6 +138,35 @@ class JsonlParser:
                     total_tokens=tool_result.get("totalTokens", 0),
                     total_tool_use_count=tool_result.get("totalToolUseCount", 0),
                 ))
+
+        elif line_type == "assistant":
+            msg = data.get("message", {})
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for item in content:
+                    if not isinstance(item, dict) or item.get("type") != "tool_use":
+                        continue
+                    name = item.get("name", "")
+                    inp = item.get("input", {})
+                    if name == "TaskCreate":
+                        self._pending_creates.append({
+                            "subject": inp.get("subject", ""),
+                            "description": inp.get("description", ""),
+                            "active_form": inp.get("activeForm", ""),
+                        })
+                    elif name == "TaskUpdate":
+                        task_id = inp.get("taskId")
+                        if task_id and task_id in self._tasks:
+                            task = self._tasks[task_id]
+                            if "status" in inp:
+                                task.status = inp["status"]
+                            if "subject" in inp:
+                                task.subject = inp["subject"]
+                            if "description" in inp:
+                                task.description = inp["description"]
+                            if "activeForm" in inp:
+                                task.active_form = inp["activeForm"]
+                            events.append(self._build_todo_update(timestamp))
 
         elif line_type == "progress":
             progress_data = data.get("data", {})
@@ -147,3 +204,9 @@ class JsonlParser:
                             ))
 
         return events
+
+    def _build_todo_update(self, timestamp: datetime) -> TodoUpdateEvent:
+        return TodoUpdateEvent(
+            timestamp=timestamp,
+            tasks=list(self._tasks.values()),
+        )

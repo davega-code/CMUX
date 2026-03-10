@@ -38,6 +38,21 @@ class AgentCompleteEvent:
 
 
 @dataclass
+class TodoItem:
+    id: str
+    subject: str
+    status: str  # "pending", "in_progress", "completed"
+    description: str = ""
+    active_form: str = ""
+
+
+@dataclass
+class TodoUpdateEvent:
+    timestamp: datetime
+    tasks: list[TodoItem] = field(default_factory=list)
+
+
+@dataclass
 class AgentState:
     agent_id: str
     prompt: str

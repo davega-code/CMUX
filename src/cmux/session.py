@@ -20,7 +20,3 @@ def get_jsonl_path(cwd: str, session_id: str) -> Path:
     """Get the JSONL session log path for a given session."""
     return get_project_dir(cwd) / f"{session_id}.jsonl"
 
-
-def get_todo_path(cwd: str, session_id: str) -> Path:
-    """Get the todo.json path for a given session."""
-    return Path(cwd) / f"{session_id}-todo.json"

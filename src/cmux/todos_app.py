@@ -1,18 +1,15 @@
-import asyncio
-import json
-from pathlib import Path
-
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
 from textual.widgets import Footer, Header, Static
 from textual import work
 
-from .session import get_todo_path
+from .events import SessionInfo, TodoUpdateEvent
+from .parser import JsonlParser
+from .session import get_jsonl_path
 
 STATUS_ICONS = {
-    "done": "[green]✓[/]",
-    "in_progress": "[yellow]▶[/]",
-    "pending": "[dim]○[/]",
+    "completed": "[green]✓[/green]",
+    "in_progress": "[yellow]▶[/yellow]",
+    "pending": "[dim]○[/dim]",
 }
 
 
@@ -24,68 +21,42 @@ class TodosApp(App):
         super().__init__(**kwargs)
         self.cwd = cwd
         self.session_id = session_id
-        self.todo_path = get_todo_path(cwd, session_id)
+        self.jsonl_path = get_jsonl_path(cwd, session_id)
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         yield Static(
-            f"Session: [bold]{self.session_id[:8]}...[/]",
+            f"Session: [bold]{self.session_id[:8]}...[/bold]  "
+            f"Watching: [dim]{self.jsonl_path}[/dim]",
             id="session-header",
         )
         yield Static(
             "Waiting for Claude to initialize tasks...",
-            id="waiting-message",
+            id="task-list",
         )
-        yield VerticalScroll(id="task-list")
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one("#task-list").display = False
-        self.watch_todo_file()
+        self.tail_session()
 
     @work(exclusive=True, thread=False)
-    async def watch_todo_file(self) -> None:
-        # Wait for file to exist
-        while not self.todo_path.exists():
-            await asyncio.sleep(0.5)
+    async def tail_session(self) -> None:
+        parser = JsonlParser(self.jsonl_path)
 
-        self.query_one("#waiting-message").display = False
-        self.query_one("#task-list").display = True
-        self._render_tasks()
+        async for event in parser.tail_events():
+            if isinstance(event, TodoUpdateEvent):
+                self._render_tasks(event)
 
-        # Watch for changes
-        import watchfiles
-
-        async for _changes in watchfiles.awatch(
-            self.todo_path.parent,
-            watch_filter=lambda change, path: str(path) == str(self.todo_path),
-        ):
-            self._render_tasks()
-
-    def _render_tasks(self) -> None:
-        try:
-            data = json.loads(self.todo_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
-            return
-
-        tasks = data.get("tasks", [])
-        container = self.query_one("#task-list")
-        container.remove_children()
-
-        for task in tasks:
-            status = task.get("status", "pending")
-            title = task.get("title", "Untitled")
-            icon = STATUS_ICONS.get(status, "?")
-
-            if status == "done":
-                markup = f"{icon} [strike]{title}[/strike]"
-                css_class = "task-done"
-            elif status == "in_progress":
-                markup = f"{icon} [bold]{title}[/bold]"
-                css_class = "task-in-progress"
+    def _render_tasks(self, event: TodoUpdateEvent) -> None:
+        lines = []
+        for task in event.tasks:
+            icon = STATUS_ICONS.get(task.status, "?")
+            if task.status == "in_progress":
+                label = task.active_form or task.subject
+                lines.append(f"{icon} [bold]{label}[/bold]")
+            elif task.status == "completed":
+                lines.append(f"{icon} [dim strike]{task.subject}[/dim strike]")
             else:
-                markup = f"{icon} {title}"
-                css_class = "task-pending"
+                lines.append(f"{icon} [dim]{task.subject}[/dim]")
 
-            widget = Static(markup, classes=f"task-row {css_class}")
-            container.mount(widget)
+        self.query_one("#task-list", Static).update("\n".join(lines))
