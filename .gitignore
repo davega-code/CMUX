@@ -449,3 +449,4 @@ nul
 
 # local
 *-todo.json
+.claude/
